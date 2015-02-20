@@ -15,6 +15,7 @@ def driverProg():
   MSG_SET_FLAG = 12
   MSG_SET_TOOL_VOLTAGE = 13
   MSG_SET_ANALOG_OUT = 14
+  MSG_SPEEDJ = 15
   MULT_wrench = 10000.0
   MULT_payload = 1000.0
   MULT_jointstate = 10000.0
@@ -41,10 +42,15 @@ def driverProg():
   
   SERVO_IDLE = 0
   SERVO_RUNNING = 1
+  SPEED_RUNNING = 2
   cmd_servo_state = SERVO_IDLE
   cmd_servo_id = 0  # 0 = idle, -1 = stop
   cmd_servo_q = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
   cmd_servo_dt = 0.0
+  cmd_speed_qd = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  cmd_speed_a = 2.0   #default
+  cmd_speed_t_min = 100000.0
+  
   def set_servo_setpoint(id, q, dt):
     enter_critical
     cmd_servo_state = SERVO_RUNNING
@@ -53,6 +59,16 @@ def driverProg():
     cmd_servo_dt = dt
     exit_critical
   end
+  
+  def set_speedj_setpoint(qd, a, t_min):
+    enter_critical
+    cmd_servo_state = SPEED_RUNNING
+    cmd_speed_qd = qd
+    cmd_speed_a = a
+    cmd_speed_t_min = t_min
+    exit_critical
+  end
+  
   thread servoThread():
     state = SERVO_IDLE
     while True:
@@ -61,11 +77,18 @@ def driverProg():
       q = cmd_servo_q
       dt = cmd_servo_dt
       id = cmd_servo_id
+      qd = cmd_speed_qd
+      a = cmd_speed_a
+      t_min = cmd_speed_t_min
       do_brake = False
       if (state == SERVO_RUNNING) and (cmd_servo_state == SERVO_IDLE):
         # No command pending
         do_brake = True
       end
+      #if (state == SPEED_RUNNING) and (cmd_servo_state == SERVO_IDLE):
+      #  # No command pending
+      #  do_brake = True
+      #end
       state = cmd_servo_state
       cmd_servo_state = SERVO_IDLE
       exit_critical
@@ -80,6 +103,9 @@ def driverProg():
       elif state == SERVO_RUNNING:
         servoj(q, 0, 0, dt)
         #send_out("Servoed")
+      elif state == SPEED_RUNNING:
+        speedj(qd, a, t_min)
+        send_out("speedj done")
       else:
         #send_out("Idle")
         sync()
@@ -91,20 +117,6 @@ def driverProg():
   send_out("hello")
   
   thread_servo = run servoThread()
-  
-  # Servoes in a circle
-  #movej([1.5,-0.4,-1.57,0,0,0], 3, 0.75, 1.0)
-  #t = 0
-  #while True:
-  #  q = [1.5,0,-1.57,0,0,0]
-  #  q[0] = q[0] + 0.2 * sin(0.25 * t*(2*pi))
-  #  q[1] = q[1] - 0.2 + 0.2 * cos(0.25 * t*(2*pi))
-  #  #servoj(q, 3, 1, 0.08)
-  #  #send_out("servoed")
-  #  set_servo_setpoint(t, q, 0.08)
-  #  t = t + 0.08
-  #  sleep(0.08)
-  #end
   
   while True:
     #send_out("Listening")
@@ -218,6 +230,25 @@ def driverProg():
           send_out("Received no parameters for set_tool_voltage message")
         end
         set_tool_voltage(params_stv[1])
+      elif mtype == MSG_SPEEDJ:
+        # Reads the parameters
+        params_speedj = socket_read_binary_integer(6+1+1)
+        if params_speedj[0] == 0:
+          send_out("Received no parameters for params_speedj message")
+        end
+        
+        # Unpacks the parameters
+        qd = [params_speedj[1] / MULT_jointstate,
+              params_speedj[2] / MULT_jointstate,
+              params_speedj[3] / MULT_jointstate,
+              params_speedj[4] / MULT_jointstate,
+              params_speedj[5] / MULT_jointstate,
+              params_speedj[6] / MULT_jointstate]
+        a = params_speedj[7] / MULT_jointstate
+        t_min = params_speedj[8] / MULT_time
+        
+        # Speed
+        set_speedj_setpoint(qd, a, t_min)
       else:
         send_out("Received unknown message type")
       end

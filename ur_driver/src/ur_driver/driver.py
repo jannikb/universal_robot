@@ -11,6 +11,7 @@ import SocketServer
 
 import rospy
 import actionlib
+from std_msgs.msg import Float64MultiArray
 from sensor_msgs.msg import JointState
 from control_msgs.msg import FollowJointTrajectoryAction
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
@@ -58,6 +59,7 @@ MSG_GET_IO = 11
 MSG_SET_FLAG = 12
 MSG_SET_TOOL_VOLTAGE = 13
 MSG_SET_ANALOG_OUT = 14
+MSG_SPEEDJ = 15
 MULT_payload = 1000.0
 MULT_wrench = 10000.0
 MULT_jointstate = 10000.0
@@ -631,6 +633,15 @@ class CommanderTCPHandler(SocketServer.BaseRequestHandler):
                  [MULT_time * t]
         self.__send_message(params)
 
+    def send_speedj(self, qd_command, a=2.0, t_min=0.0):
+        assert(len(qd_command) == 6)
+        params = [MSG_SPEEDJ] + \
+                 [MULT_jointstate * qd for qd in qd_command] + \
+                 [MULT_jointstate * a, MULT_time * t_min]
+        buf = struct.pack("!%ii" % len(params), *params)
+        with self.socket_lock:
+            self.request.send(buf)
+
     #Experimental set_payload implementation
     def send_payload(self,payload):
         self.__send_message([MSG_SET_PAYLOAD, payload * MULT_payload])
@@ -778,6 +789,26 @@ class URServiceProvider(object):
         else:
             return False
         return True
+
+class URVelocitySubscriber(object):
+    def __init__(self, robot):
+        self.robot = robot
+        rospy.Subscriber("ur_driver/joint_group_velocity_controller/command", Float64MultiArray, self.callback)
+
+    def set_robot(self, robot):
+        self.robot = robot
+
+    def callback(self, command):
+        print "Received new velocity command:"
+        print command
+        #ToDo: plausibility and limit checks
+        a = 2.0
+        t_min = 0.0
+
+        if self.robot:
+            print "Sending to velocities to robot"
+            self.robot.send_speedj(command.data, a, t_min)
+
 
 class URTrajectoryFollower(object):
     RATE = 0.02
@@ -1095,6 +1126,7 @@ def main():
     set_io_server()
 
     service_provider = None
+    velocity_subscriber = None
     action_server = None
     try:
         while not rospy.is_shutdown():
@@ -1151,6 +1183,11 @@ def main():
                 else:
                     service_provider = URServiceProvider(r)
 
+                if velocity_subscriber:
+                    velocity_subscriber.set_robot(r)
+                else:
+                    velocity_subscriber = URVelocitySubscriber(r)
+                
                 if action_server:
                     action_server.set_robot(r)
                 else:
