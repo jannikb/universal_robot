@@ -61,6 +61,14 @@
         izz="${0.5 * mass * radius * radius}" />
     </inertial>
   </xacro:macro>
+  
+  <xacro:macro name="default_inertial">
+    <inertial>
+      <mass value="0.01"/>
+      <origin xyz="0 0 0"/>
+      <inertia ixx="0.001" ixy="0.0" ixz="0.0" iyy="0.001" iyz="0.0" izz="0.001" />
+    </inertial>
+  </xacro:macro>
 
 
   <xacro:macro name="ur10_robot" params="prefix joint_limited">
@@ -79,9 +87,10 @@
           <mesh filename="package://ur_description/meshes/ur10/collision/base.stl"/>
         </geometry>
       </collision>
-      <xacro:cylinder_inertial radius="0.075" length="0.038" mass="${base_mass}">
+      <!--xacro:cylinder_inertial radius="0.075" length="0.038" mass="${base_mass}">
         <origin xyz="0.0 0.0 0.0" rpy="0 0 0" />
-      </xacro:cylinder_inertial>
+      </xacro:cylinder_inertial-->
+      <xacro:default_inertial/>
     </link>
 
     <joint name="${prefix}shoulder_pan_joint" type="revolute">
@@ -112,9 +121,10 @@
           <mesh filename="package://ur_description/meshes/ur10/collision/shoulder.stl"/>
         </geometry>
       </collision>
-      <xacro:cylinder_inertial radius="0.075" length="0.178" mass="${shoulder_mass}">
+      <!--xacro:cylinder_inertial radius="0.075" length="0.178" mass="${shoulder_mass}">
         <origin xyz="0.0 0.0 0.0" rpy="0 0 0" />
-      </xacro:cylinder_inertial>
+      </xacro:cylinder_inertial-->
+      <xacro:default_inertial/>
     </link>
 
     <joint name="${prefix}shoulder_lift_joint" type="revolute">
@@ -145,9 +155,10 @@
           <mesh filename="package://ur_description/meshes/ur10/collision/upper_arm.stl"/>
         </geometry>
       </collision>
-      <xacro:cylinder_inertial radius="0.075" length="${-ur10_a2}" mass="${upper_arm_mass}">
+      <!--xacro:cylinder_inertial radius="0.075" length="${-ur10_a2}" mass="${upper_arm_mass}">
         <origin xyz="0.0 0.0 ${-ur10_a2/2.0}" rpy="0 0 0" />
-      </xacro:cylinder_inertial>
+      </xacro:cylinder_inertial-->
+      <xacro:default_inertial/>
     </link>
 
     <joint name="${prefix}elbow_joint" type="revolute">
@@ -178,9 +189,10 @@
           <mesh filename="package://ur_description/meshes/ur10/collision/forearm.stl"/>
         </geometry>
       </collision>
-      <xacro:cylinder_inertial radius="0.075" length="${-ur10_a3}" mass="${forearm_mass}">
+      <!--xacro:cylinder_inertial radius="0.075" length="${-ur10_a3}" mass="${forearm_mass}">
         <origin xyz="0.0 0.0 ${-ur10_a3/2.0}" rpy="0 0 0" />
-      </xacro:cylinder_inertial>
+      </xacro:cylinder_inertial-->
+      <xacro:default_inertial/>
     </link>
 
     <joint name="${prefix}wrist_1_joint" type="revolute">
@@ -211,9 +223,10 @@
           <mesh filename="package://ur_description/meshes/ur10/collision/wrist_1.stl"/>
         </geometry>
       </collision>
-      <xacro:cylinder_inertial radius="0.075" length="0.12" mass="${wrist_1_mass}">
+      <!--xacro:cylinder_inertial radius="0.075" length="0.12" mass="${wrist_1_mass}">
         <origin xyz="0.0 0.0 0.0" rpy="0 0 0" />
-      </xacro:cylinder_inertial>
+      </xacro:cylinder_inertial-->
+      <xacro:default_inertial/>
     </link>
 
     <joint name="${prefix}wrist_2_joint" type="revolute">
@@ -244,9 +257,10 @@
           <mesh filename="package://ur_description/meshes/ur10/collision/wrist_2.stl"/>
         </geometry>
       </collision>
-      <xacro:cylinder_inertial radius="0.075" length="0.12" mass="${wrist_2_mass}">
+      <!--xacro:cylinder_inertial radius="0.075" length="0.12" mass="${wrist_2_mass}">
         <origin xyz="0.0 0.0 0.0" rpy="0 0 0" />
-      </xacro:cylinder_inertial>
+      </xacro:cylinder_inertial-->
+      <xacro:default_inertial/>
     </link>
 
     <joint name="${prefix}wrist_3_joint" type="revolute">
@@ -277,9 +291,10 @@
           <mesh filename="package://ur_description/meshes/ur10/collision/wrist_3.stl"/>
         </geometry>
       </collision>
-      <xacro:cylinder_inertial radius="0.075" length="0.12" mass="${wrist_3_mass}">
+      <!--xacro:cylinder_inertial radius="0.075" length="0.12" mass="${wrist_3_mass}">
         <origin xyz="0.0 0.0 0.0" rpy="0 0 0" />
-      </xacro:cylinder_inertial>
+      </xacro:cylinder_inertial-->
+      <xacro:default_inertial/>
     </link>
     
     <joint name="${prefix}ee_fixed_joint" type="fixed">
