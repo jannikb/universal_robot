@@ -238,11 +238,19 @@ class URConnection(object):
         # Use information from the robot state packet to publish IOStates        
         msg = IOStates()
         #gets digital in states
-        for i in range(0, 10):
+        for i in range(0, 8):
             msg.digital_in_states.append(DigitalIn(i, (state.masterboard_data.digital_input_bits & (1<<i))>>i))
+        for i in range(0, 8):
+            msg.digital_in_config_states.append(DigitalIn(i, (state.masterboard_data.digital_input_bits & (1<<(i+8)))>>(i+8)))
+        for i in range(0,2):
+            msg.digital_in_tool_states.append(DigitalIn(i, (state.masterboard_data.digital_input_bits & (1<<(i+16)))>>(i+16)))
         #gets digital out states
-        for i in range(0, 10):
+        for i in range(0, 8):
             msg.digital_out_states.append(DigitalOut(i, (state.masterboard_data.digital_output_bits & (1<<i))>>i))
+        for i in range(0, 8):
+            msg.digital_out_config_states.append(DigitalOut(i, (state.masterboard_data.digital_output_bits & (1<<(i+8)))>>(i+8)))
+        for i in range(0,2):
+            msg.digital_out_tool_states.append(DigitalOut(i, (state.masterboard_data.digital_output_bits & (1<<(i+16)))>>(i+16)))
         #gets analog_in[0] state
         inp = state.masterboard_data.analog_input0 / MULT_analog_robotstate
         msg.analog_in_states.append(Analog(0, inp))
