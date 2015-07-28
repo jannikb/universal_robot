@@ -1,5 +1,9 @@
 Digital[] digital_in_states
+Digital[] digital_in_config_states
+Digital[] digital_in_tool_states
 Digital[] digital_out_states
+Digital[] digital_out_config_states
+Digital[] digital_out_tool_states
 Digital[] flag_states
 Analog[] analog_in_states
 Analog[] analog_out_states

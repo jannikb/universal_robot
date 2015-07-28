@@ -19,7 +19,7 @@ from geometry_msgs.msg import WrenchStamped
 from dynamic_reconfigure.server import Server
 from ur_driver.cfg import URDriverConfig
 
-from ur_driver.deserialize import RobotState, RobotMode
+from ur_driver.deserialize import SecondaryClientPacket, RobotState, RobotMessage, RobotMode_V18, RobotMode_V30
 from ur_driver.deserializeRT import RobotStateRT
 
 from ur_msgs.srv import SetPayload, SetIO
@@ -39,7 +39,7 @@ prevent_programming = False
 # q_actual = q_from_driver + offset
 joint_offsets = {}
 
-PORT=30002       # 10 Hz, RobotState 
+PORT=30002       # 10 Hz, RobotState
 RT_PORT=30003    #125 Hz, RobotStateRT
 DEFAULT_REVERSE_PORT = 50001     #125 Hz, custom data (from prog)
 
@@ -88,7 +88,7 @@ JOINT_NAMES = ['shoulder_pan_joint', 'shoulder_lift_joint', 'elbow_joint',
 Q1 = [2.2,0,-1.57,0,0,0]
 Q2 = [1.5,0,-1.57,0,0,0]
 Q3 = [1.5,-0.2,-1.57,0,0,0]
-  
+
 
 connected_robot = None
 connected_robot_lock = threading.Lock()
@@ -122,29 +122,34 @@ RESET_PROGRAM = '''def resetProg():
 end
 '''
 #RESET_PROGRAM = ''
-    
+
 class URConnection(object):
     TIMEOUT = 1.0
-    
+
     DISCONNECTED = 0
     CONNECTED = 1
     READY_TO_PROGRAM = 2
     EXECUTING = 3
-    
+
     def __init__(self, hostname, port, program):
         self.__thread = None
         self.__sock = None
+        self.robot_version = -1
         self.robot_state = self.DISCONNECTED
+        print("DebugRobotState %d" % self.robot_state )
         self.hostname = hostname
         self.port = port
         self.program = program
         self.last_state = None
 
     def connect(self):
+        print("Connect")
         if self.__sock:
+            print("Disconnect")
             self.disconnect()
         self.__buf = ""
         self.robot_state = self.CONNECTED
+        print("DebugRobotState %d" % self.robot_state )
         self.__sock = socket.create_connection((self.hostname, self.port))
         self.__keep_running = True
         self.__thread = threading.Thread(name="URConnection", target=self.__run)
@@ -152,19 +157,23 @@ class URConnection(object):
         self.__thread.start()
 
     def send_program(self):
+        print("Send_Programm")
         global prevent_programming
         if prevent_programming:
             rospy.loginfo("Programming is currently prevented")
             return
+        print("RobotState: %d" % self.robot_state)
         assert self.robot_state in [self.READY_TO_PROGRAM, self.EXECUTING]
         rospy.loginfo("Programming the robot at %s" % self.hostname)
         self.__sock.sendall(self.program)
         self.robot_state = self.EXECUTING
+        print("DebugRobotState %d" % self.robot_state )
 
     def send_reset_program(self):
         self.__sock.sendall(RESET_PROGRAM)
         self.robot_state = self.READY_TO_PROGRAM
-        
+        print("DebugRobotState %d" % self.robot_state )
+
     def disconnect(self):
         if self.__thread:
             self.__keep_running = False
@@ -175,20 +184,37 @@ class URConnection(object):
             self.__sock = None
         self.last_state = None
         self.robot_state = self.DISCONNECTED
+        print("DebugRobotState %d" % self.robot_state )
 
     def ready_to_program(self):
+        rospy.loginfo("RobotState %d" % self.robot_state)
         return self.robot_state in [self.READY_TO_PROGRAM, self.EXECUTING]
 
     def __trigger_disconnected(self):
         log("Robot disconnected")
         self.robot_state = self.DISCONNECTED
+        print("DebugRobotState %d" % self.robot_state )
     def __trigger_ready_to_program(self):
         rospy.loginfo("Robot ready to program")
     def __trigger_halted(self):
         log("Halted")
 
     def __on_packet(self, buf):
-        state = RobotState.unpack(buf)
+        print("OnPacket")
+        scp = SecondaryClientPacket.unpack(buf)
+
+        if scp.robot_message:
+            print("RobotMessage received")
+            print scp.robot_message.version_message.majorVersion
+            self.robot_version = scp.robot_message.version_message.majorVersion
+            self.robot_state = self.CONNECTED
+            print("DebugRobotState %d" % self.robot_state )
+
+        if not scp.robot_state:
+            print("RobotState is None")
+            return
+
+        state = scp.robot_state
         self.last_state = state
         #import deserialize; deserialize.pstate(self.last_state)
 
@@ -198,54 +224,70 @@ class URConnection(object):
             rospy.logfatal("Real robot is no longer enabled.  Driver is fuxored")
             time.sleep(2)
             sys.exit(1)
-        
+
         ###
         # IO-Support is EXPERIMENTAL
-        # 
-        # Notes: 
+        #
+        # Notes:
         # - Where are the flags coming from? Do we need flags? No, as 'prog' does not use them and other scripts are not running!
         # - analog_input2 and analog_input3 are within ToolData
         # - What to do with the different analog_input/output_range/domain?
         # - Shall we have appropriate ur_msgs definitions in order to reflect MasterboardData, ToolData,...?
         ###
-        
-        # Use information from the robot state packet to publish IOStates        
+
+        # Use information from the robot state packet to publish IOStates
         msg = IOStates()
         #gets digital in states
-        for i in range(0, 10):
+        for i in range(0, 8):
             msg.digital_in_states.append(DigitalIn(i, (state.masterboard_data.digital_input_bits & (1<<i))>>i))
+        for i in range(0, 8):
+            msg.digital_in_config_states.append(DigitalIn(i, (state.masterboard_data.digital_input_bits & (1<<(i+8)))>>(i+8)))
+        for i in range(0,2):
+            msg.digital_in_tool_states.append(DigitalIn(i, (state.masterboard_data.digital_input_bits & (1<<(i+16)))>>(i+16)))
         #gets digital out states
-        for i in range(0, 10):
+        for i in range(0, 8):
             msg.digital_out_states.append(DigitalOut(i, (state.masterboard_data.digital_output_bits & (1<<i))>>i))
+        for i in range(0, 8):
+            msg.digital_out_config_states.append(DigitalOut(i, (state.masterboard_data.digital_output_bits & (1<<(i+8)))>>(i+8)))
+        for i in range(0,2):
+            msg.digital_out_tool_states.append(DigitalOut(i, (state.masterboard_data.digital_output_bits & (1<<(i+16)))>>(i+16)))
         #gets analog_in[0] state
         inp = state.masterboard_data.analog_input0 / MULT_analog_robotstate
         msg.analog_in_states.append(Analog(0, inp))
         #gets analog_in[1] state
         inp = state.masterboard_data.analog_input1 / MULT_analog_robotstate
-        msg.analog_in_states.append(Analog(1, inp))      
+        msg.analog_in_states.append(Analog(1, inp))
         #gets analog_out[0] state
         inp = state.masterboard_data.analog_output0 / MULT_analog_robotstate
-        msg.analog_out_states.append(Analog(0, inp))     
+        msg.analog_out_states.append(Analog(0, inp))
         #gets analog_out[1] state
         inp = state.masterboard_data.analog_output1 / MULT_analog_robotstate
-        msg.analog_out_states.append(Analog(1, inp))     
+        msg.analog_out_states.append(Analog(1, inp))
         #print "Publish IO-Data from robot state data"
         pub_io_states.publish(msg)
-        
+
 
         # Updates the state machine that determines whether we can program the robot.
-        can_execute = (state.robot_mode_data.robot_mode in [RobotMode.READY, RobotMode.RUNNING])
+        rospy.loginfo("RobotMode %d" % state.robot_mode_data.robot_mode)
+        if self.robot_version == 3:
+            can_execute = (state.robot_mode_data.robot_mode in [RobotMode_V30.ROBOT_MODE_RUNNING]) #RobotMode_V30.ROBOT_MODE_IDLE?
+        else: # using V18 as default
+            can_execute = (state.robot_mode_data.robot_mode in [RobotMode_V18.ROBOT_READY_MODE, RobotMode_V18.ROBOT_RUNNING_MODE])
+
         if self.robot_state == self.CONNECTED:
             if can_execute:
                 self.__trigger_ready_to_program()
                 self.robot_state = self.READY_TO_PROGRAM
+                print("DebugRobotState %d" % self.robot_state )
         elif self.robot_state == self.READY_TO_PROGRAM:
             if not can_execute:
                 self.robot_state = self.CONNECTED
+                print("DebugRobotState %d" % self.robot_state )
         elif self.robot_state == self.EXECUTING:
             if not can_execute:
                 self.__trigger_halted()
                 self.robot_state = self.CONNECTED
+                print("DebugRobotState %d" % self.robot_state )
 
         # Report on any unknown packet types that were received
         if len(state.unknown_ptypes) > 0:
@@ -281,20 +323,22 @@ class URConnection(object):
                             break
 
                 else:
+                    print("No more")
                     self.__trigger_disconnected()
                     self.__keep_running = False
-                    
+
             else:
+                print("No r")
                 self.__trigger_disconnected()
                 self.__keep_running = False
 
 
 class URConnectionRT(object):
     TIMEOUT = 1.0
-    
+
     DISCONNECTED = 0
     CONNECTED = 1
-    
+
     def __init__(self, hostname, port):
         self.__thread = None
         self.__sock = None
@@ -313,7 +357,7 @@ class URConnectionRT(object):
         self.__thread = threading.Thread(name="URConnectionRT", target=self.__run)
         self.__thread.daemon = True
         self.__thread.start()
-        
+
     def disconnect(self):
         if self.__thread:
             self.__keep_running = False
@@ -334,7 +378,7 @@ class URConnectionRT(object):
         now = rospy.get_rostime()
         stateRT = RobotStateRT.unpack(buf)
         self.last_stateRT = stateRT
-        
+
         msg = JointState()
         msg.header.stamp = now
         msg.header.frame_id = "From real-time state data"
@@ -347,7 +391,7 @@ class URConnectionRT(object):
         pub_joint_states.publish(msg)
         with last_joint_states_lock:
             last_joint_states = msg
-        
+
         wrench_msg = WrenchStamped()
         wrench_msg.header.stamp = now
         wrench_msg.wrench.force.x = stateRT.tcp_force[0]
@@ -357,7 +401,7 @@ class URConnectionRT(object):
         wrench_msg.wrench.torque.y = stateRT.tcp_force[4]
         wrench_msg.wrench.torque.z = stateRT.tcp_force[5]
         pub_wrench.publish(wrench_msg)
-        
+
 
     def __run(self):
         while self.__keep_running:
@@ -366,7 +410,7 @@ class URConnectionRT(object):
                 more = self.__sock.recv(4096)
                 if more:
                     self.__buf = self.__buf + more
-                    
+
                     #unpack_from requires a buffer of at least 48 bytes
                     while len(self.__buf) >= 48:
                         # Attempts to extract a packet
@@ -380,7 +424,7 @@ class URConnectionRT(object):
                 else:
                     self.__trigger_disconnected()
                     self.__keep_running = False
-                    
+
             else:
                 self.__trigger_disconnected()
                 self.__keep_running = False
@@ -448,7 +492,7 @@ class CommanderTCPHandler(SocketServer.BaseRequestHandler):
                             raise Exception("Probably forgot to terminate a string: %s..." % buf[:150])
                     s, buf = buf[:i], buf[i+1:]
                     log("Out: %s" % s)
-                
+
                 elif mtype == MSG_QUIT:
                     print "Quitting"
                     raise EOF("Received quit")
@@ -527,7 +571,7 @@ class CommanderTCPHandler(SocketServer.BaseRequestHandler):
     def get_joint_states(self):
         global last_joint_states, last_joint_states_lock
         return last_joint_states
-    
+
 
 class TCPServer(SocketServer.TCPServer):
     allow_reuse_address = True  # Allows the program to restart gracefully on crash
@@ -588,7 +632,7 @@ def sample_traj(traj, t):
     # Last point
     if t >= traj.points[-1].time_from_start.to_sec():
         return copy.deepcopy(traj.points[-1])
-    
+
     # Finds the (middle) segment containing t
     i = 0
     while traj.points[i+1].time_from_start.to_sec() < t:
@@ -604,7 +648,7 @@ def traj_is_finite(traj):
             if math.isinf(v) or math.isnan(v):
                 return False
     return True
-        
+
 def has_limited_velocities(traj):
     for p in traj.points:
         for v in p.velocities:
@@ -636,7 +680,7 @@ class URServiceProvider(object):
         if req.payload < min_payload or req.payload > max_payload:
             print 'ERROR: Payload ' + str(req.payload) + ' out of bounds (' + str(min_payload) + ', ' + str(max_payload) + ')'
             return False
-        
+
         if self.robot:
             self.robot.send_payload(req.payload)
         else:
@@ -718,7 +762,7 @@ class URTrajectoryFollower(object):
             rospy.logerr("Received a goal with infinites or NaNs")
             goal_handle.set_rejected(text="Received a goal with infinites or NaNs")
             return
-        
+
         # Checks that the trajectory has velocities
         if not has_velocities(goal_handle.get_goal().trajectory):
             rospy.logerr("Received a goal without velocities")
@@ -734,7 +778,7 @@ class URTrajectoryFollower(object):
 
         # Orders the joints of the trajectory according to joint_names
         reorder_traj_joints(goal_handle.get_goal().trajectory, joint_names)
-                
+
         with self.following_lock:
             if self.goal_handle:
                 # Cancels the existing goal
@@ -771,7 +815,7 @@ class URTrajectoryFollower(object):
                 self.traj = JointTrajectory()
                 self.traj.joint_names = joint_names
                 self.traj.points = [point0, point1]
-                
+
                 self.goal_handle.set_canceled()
                 self.goal_handle = None
         else:
@@ -788,7 +832,7 @@ class URTrajectoryFollower(object):
                     self.robot.send_servoj(999, setpoint.positions, 4 * self.RATE)
                 except socket.error:
                     pass
-                    
+
             elif not self.last_point_sent:
                 # All intermediate points sent, sending last point to make sure we
                 # reach the goal.
@@ -812,7 +856,7 @@ class URTrajectoryFollower(object):
                     self.last_point_sent = True
                 except socket.error:
                     pass
-                    
+
             else:  # Off the end
                 if self.goal_handle:
                     last_point = self.traj.points[-1]
@@ -862,6 +906,7 @@ def get_my_ip(robot_ip, port):
     return tmp
 
 def handle_set_io(req):
+    print("Handle_SET_IO")
     r = getConnectedRobot(wait=False)
     if r:
         if req.fun == FUN_SET_DIGITAL_OUT:
@@ -892,10 +937,10 @@ def main():
     rospy.init_node('ur_driver', disable_signals=True)
     if rospy.get_param("use_sim_time", False):
         rospy.logwarn("use_sim_time is set!!!")
-    
+
     global prevent_programming
     reconfigure_srv = Server(URDriverConfig, reconfigure_callback)
-    
+
     prefix = rospy.get_param("~prefix", "")
     print "Setting prefix to %s" % prefix
     global joint_names
@@ -928,9 +973,9 @@ def main():
     # Reads the maximum velocity
     # The max_velocity parameter is only used for debugging in the ur_driver. It's not related to actual velocity limits
     global max_velocity
-    max_velocity = rospy.get_param("~max_velocity", MAX_VELOCITY) # [rad/s] 
+    max_velocity = rospy.get_param("~max_velocity", MAX_VELOCITY) # [rad/s]
     rospy.loginfo("Max velocity accepted by ur_driver: %s [rad/s]" % max_velocity)
-    
+
     # Reads the minimum payload
     global min_payload
     min_payload = rospy.get_param("~min_payload", MIN_PAYLOAD)
@@ -938,7 +983,7 @@ def main():
     global max_payload
     max_payload = rospy.get_param("~max_payload", MAX_PAYLOAD)
     rospy.loginfo("Bounds for Payload: [%s, %s]" % (min_payload, max_payload))
-    
+
 
     # Sets up the server for the robot to connect to
     server = TCPServer(("", reverse_port), CommanderTCPHandler)
@@ -951,18 +996,19 @@ def main():
     connection = URConnection(robot_hostname, PORT, program)
     connection.connect()
     connection.send_reset_program()
-    
+
     connectionRT = URConnectionRT(robot_hostname, RT_PORT)
     connectionRT.connect()
-    
+
     set_io_server()
-    
+
     service_provider = None
     action_server = None
     try:
         while not rospy.is_shutdown():
             # Checks for disconnect
             if getConnectedRobot(wait=False):
+                print("RobotConnected!")
                 time.sleep(0.2)
                 try:
                     prevent_programming = rospy.get_param("~prevent_programming")
@@ -976,8 +1022,18 @@ def main():
                     connection.send_reset_program()
             else:
                 print "Disconnected.  Reconnecting"
+                if service_provider:
+                    service_provider.set_robot(None)
                 if action_server:
                     action_server.set_robot(None)
+
+                #rospy.loginfo("Connecting to the robot")
+                #while not getConnectedRobot(wait=True, timeout=1.0):
+                    #print "Waiting to connect"
+                    #connection.connect()
+                    #connection.send_reset_program()
+
+                    ##connectionRT.connect()
 
                 rospy.loginfo("Programming the robot")
                 while True:
@@ -985,18 +1041,13 @@ def main():
                     while not connection.ready_to_program():
                         print "Waiting to program"
                         time.sleep(1.0)
-                    try:
-                        prevent_programming = rospy.get_param("~prevent_programming")
-                        update = {'prevent_programming': prevent_programming}
-                        reconfigure_srv.update_configuration(update)
-                    except KeyError, ex:
-                        print "Parameter 'prevent_programming' not set. Value: " + str(prevent_programming)
-                        pass
                     connection.send_program()
+                    print("Sent Program")
 
-                    r = getConnectedRobot(wait=True, timeout=1.0)
+                    r = getConnectedRobot(wait=True, timeout=5.0)
                     if r:
                         break
+                    print "Robot NOT connected"
                 rospy.loginfo("Robot connected")
 
                 #provider for service calls
@@ -1004,7 +1055,7 @@ def main():
                     service_provider.set_robot(r)
                 else:
                     service_provider = URServiceProvider(r)
-                
+
                 if action_server:
                     action_server.set_robot(r)
                 else:
