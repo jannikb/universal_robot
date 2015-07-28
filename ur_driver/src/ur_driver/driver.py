@@ -200,7 +200,7 @@ class URConnection(object):
         log("Halted")
 
     def __on_packet(self, buf):
-        print("OnPacket")
+        #print("OnPacket")
         scp = SecondaryClientPacket.unpack(buf)
 
         if scp.robot_message:
@@ -268,7 +268,7 @@ class URConnection(object):
 
 
         # Updates the state machine that determines whether we can program the robot.
-        rospy.loginfo("RobotMode %d" % state.robot_mode_data.robot_mode)
+        # rospy.loginfo("RobotMode %d" % state.robot_mode_data.robot_mode)
         if self.robot_version == 3:
             can_execute = (state.robot_mode_data.robot_mode in [RobotMode_V30.ROBOT_MODE_RUNNING]) #RobotMode_V30.ROBOT_MODE_IDLE?
         else: # using V18 as default
@@ -1008,7 +1008,7 @@ def main():
         while not rospy.is_shutdown():
             # Checks for disconnect
             if getConnectedRobot(wait=False):
-                print("RobotConnected!")
+                #print("RobotConnected!")
                 time.sleep(0.2)
                 try:
                     prevent_programming = rospy.get_param("~prevent_programming")
@@ -1041,6 +1041,10 @@ def main():
                     while not connection.ready_to_program():
                         print "Waiting to program"
                         time.sleep(1.0)
+
+                    print "Ready to program"
+
+                    #prevent_programming = rospy.get_param("prevent_programming", False)
                     connection.send_program()
                     print("Sent Program")
 
