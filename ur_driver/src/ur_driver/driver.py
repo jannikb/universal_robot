@@ -15,6 +15,7 @@ from sensor_msgs.msg import JointState
 from control_msgs.msg import FollowJointTrajectoryAction
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from geometry_msgs.msg import WrenchStamped
+from diagnostic_msgs.msg import DiagnosticStatus, DiagnosticArray, KeyValue
 
 from dynamic_reconfigure.server import Server
 from ur_driver.cfg import URDriverConfig
@@ -98,6 +99,7 @@ last_joint_states_lock = threading.Lock()
 pub_joint_states = rospy.Publisher('joint_states', JointState, queue_size=1)
 pub_wrench = rospy.Publisher('wrench', WrenchStamped, queue_size=1)
 pub_io_states = rospy.Publisher('io_states', IOStates, queue_size=1)
+pub_diagnostics = rospy.Publisher('diagnostics', DiagnosticArray)
 #dump_state = open('dump_state', 'wb')
 
 class RobotCommands(object):
@@ -292,17 +294,52 @@ class URConnection(object):
         #print "Publish IO-Data from robot state data"
         pub_io_states.publish(msg)
 
+        # publish diagnostics
+        if self.robot_version == 3:
+            masterboard_msg = DiagnosticStatus()
+            masterboard_msg.level = 0
+            masterboard_msg.name = 'ur_arm/Masterboard'
+            masterboard_msg.hardware_id = 'ur_arm'
+            masterboard_msg.message = 'nothing to see here'
+            masterboard_msg.values = [KeyValue('temp', str(state.masterboard_data.masterboard_temperature)),
+                KeyValue('robot voltage 48V', str(state.masterboard_data.robot_voltage_48V)),
+                KeyValue('robot current', str(state.masterboard_data.robot_current)),
+                KeyValue('master io current', str(state.masterboard_data.master_io_current)),
+                KeyValue('safety mode', str(state.masterboard_data.safety_mode)),
+                KeyValue('in reduced mode', str(state.masterboard_data.in_reduced_mode))]
+
+            robot_msg = DiagnosticStatus()
+            if state.robot_mode_data.emergency_stopped or state.robot_mode_data.security_stopped:
+                robot_msg.level = 1
+            else:
+                robot_msg.level = 0
+            robot_msg.name = 'ur_arm/Robot status'
+            robot_msg.hardware_id = 'ur_arm'
+            robot_msg.message = 'Beep'
+            robot_msg.values = [KeyValue('mode', str(state.robot_mode_data.robot_mode)),
+                KeyValue('connected', str(state.robot_mode_data.robot_connected)),
+                KeyValue('power on robot', str(state.robot_mode_data.power_on_robot)),
+                KeyValue('emergency stop', str(state.robot_mode_data.emergency_stopped)),
+                KeyValue('security stop', str(state.robot_mode_data.security_stopped)),
+                KeyValue('program running', str(state.robot_mode_data.program_running)),
+                KeyValue('program paused', str(state.robot_mode_data.program_paused))]
+
+            status_array_msg = DiagnosticArray()
+            status_array_msg.status = [masterboard_msg, robot_msg]
+            pub_diagnostics.publish(status_array_msg)
+
+
         # Updates the state machine that determines whether we can program the robot.
         # rospy.loginfo("RobotMode %d" % state.robot_mode_data.robot_mode)
         can_execute = False
         if self.robot_version == 3:
             if state.robot_mode_data.emergency_stopped:
                 if not self.stopped:
-                    print("Emergency stop")
+                    rospy.loginfo("Emergency stop")
                 self.stopped = True
             elif state.robot_mode_data.security_stopped:
                 if not self.stopped:
-                    print("Security stop")
+                    rospy.loginfo("Security stop")
                 self.stopped = True
             else:
                 self.stopped = False
