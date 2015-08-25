@@ -1,0 +1,6 @@
+analyzers:
+  motherboard:
+    type: GenericAnalyzer
+    path: UR3
+    contains: ['ur_arm']
+    remove_prefix: 'ur_arm'
