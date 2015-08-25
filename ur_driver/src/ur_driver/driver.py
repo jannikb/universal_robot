@@ -763,7 +763,7 @@ def within_tolerance(a_vec, b_vec, tol_vec):
 class URServiceProvider(object):
     def __init__(self, robot):
         self.robot = robot
-        rospy.Service('ur_driver/setPayload', SetPayload, self.setPayload)
+        rospy.Service('ur_driver/set_payload', SetPayload, self.setPayload)
 
     def set_robot(self, robot):
         self.robot = robot
