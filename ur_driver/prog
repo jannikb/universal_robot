@@ -107,7 +107,6 @@ def driverProg():
         #send_out("Servoed")
       elif state == SPEED_RUNNING:
         speedj(qd, a, t_min)
-        send_out("speedj done")
       else:
         #send_out("Idle")
         sync()
@@ -246,7 +245,6 @@ def driverProg():
         set_tool_voltage(params_stv[1])
       elif mtype == MSG_SPEEDJ:
         # Reads the parameters
-        send_out("Received speedj")
         params_speedj = socket_read_binary_integer(6+1+1)
         if params_speedj[0] == 0:
           send_out("Received no parameters for params_speedj message")

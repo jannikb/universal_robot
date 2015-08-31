@@ -12,9 +12,12 @@ def main():
         time.sleep(1)
 
         msg = Float64MultiArray()
-        msg.data = [0.0, 0.0, 0.0, 0.0, -1.0, 0.0]
-        pub.publish(msg)
-        print("Published message: " + str(msg))
+        msg.data = [0.0, 0.0, 0.0, 0.0, 0.1, 0.0]
+        print("Publishing message: " + str(msg))
+        for i in range(0,30):
+            pub.publish(msg)
+            time.sleep(0.1)
+
 
         # time.sleep(2.0)
         # msg.data = [0.0, 0.0, 0.0, 0.0, 0.0, -1.0]

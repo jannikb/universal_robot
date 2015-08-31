@@ -806,19 +806,17 @@ class URVelocitySubscriber(object):
     def __init__(self, robot):
         self.robot = robot
         rospy.Subscriber("ur_driver/joint_group_velocity_controller/command", Float64MultiArray, self.callback)
+        rospy.loginfo("Started URVelocitySubscriber")
 
     def set_robot(self, robot):
         self.robot = robot
 
     def callback(self, command):
-        print "Received new velocity command:"
-        print command
         #ToDo: plausibility and limit checks
         a = 2.0
         t_min = 0.1
 
         if self.robot:
-            print "Sending to velocities to robot"
             self.robot.send_speedj(command.data, a, t_min)
 
 class URTrajectoryFollower(object):
