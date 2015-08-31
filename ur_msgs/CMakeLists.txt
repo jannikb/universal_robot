@@ -21,6 +21,7 @@ add_message_files(
 add_service_files(
    FILES
    SetPayload.srv
+   SetGravity.srv
    SetIO.srv
 )
 

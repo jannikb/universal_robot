@@ -24,7 +24,7 @@ from ur_driver.cfg import URDriverConfig
 from ur_driver.deserialize import SecondaryClientPacket, RobotState, RobotMessage, RobotMode_V18, RobotMode_V30
 from ur_driver.deserializeRT import RobotStateRT
 
-from ur_msgs.srv import SetPayload, SetIO
+from ur_msgs.srv import SetPayload, SetIO, SetGravity
 from ur_msgs.msg import *
 
 # renaming classes
@@ -60,6 +60,8 @@ MSG_SET_FLAG = 12
 MSG_SET_TOOL_VOLTAGE = 13
 MSG_SET_ANALOG_OUT = 14
 MSG_SPEEDJ = 15
+MSG_SET_GRAVITY = 16
+MULT_gravity = 10000.0
 MULT_payload = 1000.0
 MULT_wrench = 10000.0
 MULT_jointstate = 10000.0
@@ -101,7 +103,7 @@ last_joint_states_lock = threading.Lock()
 pub_joint_states = rospy.Publisher('joint_states', JointState, queue_size=1)
 pub_wrench = rospy.Publisher('wrench', WrenchStamped, queue_size=1)
 pub_io_states = rospy.Publisher('io_states', IOStates, queue_size=1)
-pub_diagnostics = rospy.Publisher('diagnostics', DiagnosticArray)
+pub_diagnostics = rospy.Publisher('diagnostics', DiagnosticArray, queue_size=1)
 #dump_state = open('dump_state', 'wb')
 
 class RobotCommands(object):
@@ -236,7 +238,7 @@ class URConnection(object):
             rospy.logdebug("DebugRobotState %d" % self.robot_state )
 
         if not scp.robot_state:
-            rospy.logdebug("RobotState is None")
+            rospy.logwarn("RobotState is None")
             return
 
         state = scp.robot_state
@@ -638,13 +640,15 @@ class CommanderTCPHandler(SocketServer.BaseRequestHandler):
         params = [MSG_SPEEDJ] + \
                  [MULT_jointstate * qd for qd in qd_command] + \
                  [MULT_jointstate * a, MULT_time * t_min]
-        buf = struct.pack("!%ii" % len(params), *params)
-        with self.socket_lock:
-            self.request.send(buf)
+        self.__send_message(params)
 
     #Experimental set_payload implementation
     def send_payload(self,payload):
         self.__send_message([MSG_SET_PAYLOAD, payload * MULT_payload])
+
+    #Experimental set_gravity implementation
+    def send_gravity(self,gravity):
+        self.__send_message([MSG_SET_GRAVITY] + [g * MULT_gravity for g in gravity])
 
     #Experimental set_digital_output implementation
     def set_digital_out(self, pinnum, value):
@@ -775,6 +779,7 @@ class URServiceProvider(object):
     def __init__(self, robot):
         self.robot = robot
         rospy.Service('ur_driver/set_payload', SetPayload, self.setPayload)
+        rospy.Service('ur_driver/set_gravity', SetGravity, self.setGravity)
 
     def set_robot(self, robot):
         self.robot = robot
@@ -786,6 +791,13 @@ class URServiceProvider(object):
 
         if self.robot:
             self.robot.send_payload(req.payload)
+        else:
+            return False
+        return True
+
+    def setGravity(self, req):
+        if self.robot:
+            self.robot.send_gravity(req.gravity)
         else:
             return False
         return True
@@ -803,12 +815,11 @@ class URVelocitySubscriber(object):
         print command
         #ToDo: plausibility and limit checks
         a = 2.0
-        t_min = 0.0
+        t_min = 0.1
 
         if self.robot:
             print "Sending to velocities to robot"
             self.robot.send_speedj(command.data, a, t_min)
-
 
 class URTrajectoryFollower(object):
     RATE = 0.02
@@ -1187,7 +1198,7 @@ def main():
                     velocity_subscriber.set_robot(r)
                 else:
                     velocity_subscriber = URVelocitySubscriber(r)
-                
+
                 if action_server:
                     action_server.set_robot(r)
                 else:
