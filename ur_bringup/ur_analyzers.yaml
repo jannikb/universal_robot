@@ -1,6 +1,27 @@
+#pub_rate: 1.0
+# base_path: 'ur_arm'
 analyzers:
-  motherboard:
+  masterboard:
     type: GenericAnalyzer
     path: UR3
-    contains: ['ur_arm']
+    contains: ['Masterboard']
     remove_prefix: 'ur_arm'
+  robot_status:
+    type: GenericAnalyzer
+    path: UR3
+    contains: ['Robot Status']
+    remove_prefix: 'ur_arm'
+  robot_state:
+    type: GenericAnalyzer
+    path: UR3
+    contains: ['Robot State']
+    remove_prefix: 'ur_arm'
+  ur3_joints:
+    type: AnalyzerGroup
+    path: UR3
+    analyzers:
+      joints:
+        type: GenericAnalyzer
+        path: Joints
+        contains: ['joints']
+        remove_prefix: 'ur_arm joints'

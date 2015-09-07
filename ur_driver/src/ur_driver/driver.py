@@ -90,11 +90,6 @@ IO_SLEEP_TIME = 0.05
 JOINT_NAMES = ['shoulder_pan_joint', 'shoulder_lift_joint', 'elbow_joint',
                'wrist_1_joint', 'wrist_2_joint', 'wrist_3_joint']
 
-Q1 = [2.2,0,-1.57,0,0,0]
-Q2 = [1.5,0,-1.57,0,0,0]
-Q3 = [1.5,-0.2,-1.57,0,0,0]
-
-
 connected_robot = None
 connected_robot_lock = threading.Lock()
 connected_robot_cond = threading.Condition(connected_robot_lock)
@@ -133,6 +128,25 @@ def dumpstacks():
 def log(s):
     print "[%s] %s" % (datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f'), s)
 
+def make_diagnostic_status(level, name, message, values, hardware_id='ur_arm'):
+    msg = DiagnosticStatus()
+    msg.level = level
+    msg.name = name
+    msg.hardware_id = hardware_id
+    msg.message = message
+    msg.values = values
+
+    return msg
+
+def publish_diagnostics(msgs):
+    status_array_msg = DiagnosticArray()
+    status_array_msg.status = msgs
+    pub_diagnostics.publish(status_array_msg)
+
+def publish_robot_state(state):
+    publish_diagnostics([make_diagnostic_status(DiagnosticStatus.OK, 'ur_arm/Robot State',
+        URConnection.state_names[state], [KeyValue('Robot state', str(state))])])
+
 
 RESET_PROGRAM = '''def resetProg():
   sleep(0.0)
@@ -150,11 +164,14 @@ class URConnection(object):
     WAITING_FOR_POWER = 4
     WAITING_FOR_RUN = 5
 
+    state_names = ['disconnected', 'connected', 'ready to program', 'executing', 'waiting for power', 'waiting to run']
+
     def __init__(self, hostname, port, program):
         self.__thread = None
         self.__sock = None
         self.robot_version = -1
         self.robot_state = self.DISCONNECTED
+        publish_robot_state(self.robot_state)
         rospy.logdebug("DebugRobotState %d", self.robot_state )
         self.hostname = hostname
         self.port = port
@@ -170,6 +187,7 @@ class URConnection(object):
             self.disconnect()
         self.__buf = ""
         self.robot_state = self.CONNECTED
+        publish_robot_state(self.robot_state)
         rospy.logdebug("DebugRobotState %d" % self.robot_state )
         self.__sock = socket.create_connection((self.hostname, self.port))
         self.__keep_running = True
@@ -183,16 +201,19 @@ class URConnection(object):
         if prevent_programming:
             rospy.loginfo("Programming is currently prevented")
             return
+        publish_robot_state(self.robot_state)
         rospy.logdebug("RobotState: %d" % self.robot_state)
         assert self.robot_state in [self.READY_TO_PROGRAM, self.EXECUTING]
         rospy.loginfo("Programming the robot at %s" % self.hostname)
         self.__sock.sendall(self.program)
         self.robot_state = self.EXECUTING
+        publish_robot_state(self.robot_state)
         rospy.logdebug("DebugRobotState %d" % self.robot_state )
 
     def send_reset_program(self):
         self.__sock.sendall(RESET_PROGRAM)
         self.robot_state = self.READY_TO_PROGRAM
+        publish_robot_state(self.robot_state)
         rospy.logdebug("DebugRobotState %d" % self.robot_state )
 
     def send_command(self, command):
@@ -210,6 +231,7 @@ class URConnection(object):
         self.last_state = None
         self.last_mode = None
         self.robot_state = self.DISCONNECTED
+        publish_robot_state(self.robot_state)
         rospy.logdebug("DebugRobotState %d" % self.robot_state )
 
     def ready_to_program(self):
@@ -219,6 +241,7 @@ class URConnection(object):
     def __trigger_disconnected(self):
         rospy.loginfo("Robot disconnected")
         self.robot_state = self.DISCONNECTED
+        publish_robot_state(self.robot_state)
         rospy.logdebug("DebugRobotState %d" % self.robot_state )
 
     def __trigger_ready_to_program(self):
@@ -234,7 +257,9 @@ class URConnection(object):
             rospy.loginfo("RobotMessage received")
             rospy.logdebug("Message version: %d", scp.robot_message.version_message.majorVersion)
             self.robot_version = scp.robot_message.version_message.majorVersion
-            self.robot_state = self.CONNECTED
+            if not (self.robot_state == self.EXECUTING or self.robot_state == self.READY_TO_PROGRAM):
+                self.robot_state = self.CONNECTED
+            publish_robot_state(self.robot_state)
             rospy.logdebug("DebugRobotState %d" % self.robot_state )
 
         if not scp.robot_state:
@@ -299,39 +324,44 @@ class URConnection(object):
         pub_io_states.publish(msg)
 
         # publish diagnostics
-        if self.robot_version == 3:
-            masterboard_msg = DiagnosticStatus()
-            masterboard_msg.level = 0
-            masterboard_msg.name = 'ur_arm/Masterboard'
-            masterboard_msg.hardware_id = 'ur_arm'
-            masterboard_msg.message = 'nothing to see here'
-            masterboard_msg.values = [KeyValue('temp', str(state.masterboard_data.masterboard_temperature)),
-                KeyValue('robot voltage 48V', str(state.masterboard_data.robot_voltage_48V)),
-                KeyValue('robot current', str(state.masterboard_data.robot_current)),
-                KeyValue('master io current', str(state.masterboard_data.master_io_current)),
-                KeyValue('safety mode', str(state.masterboard_data.safety_mode)),
-                KeyValue('in reduced mode', str(state.masterboard_data.in_reduced_mode))]
+        dia_masterboard = make_diagnostic_status(DiagnosticStatus.OK, 'ur_arm/Masterboard', '',
+                            [KeyValue('temp', str(state.masterboard_data.masterboard_temperature)),
+                                KeyValue('robot voltage 48V', str(state.masterboard_data.robot_voltage_48V)),
+                                KeyValue('robot current', str(state.masterboard_data.robot_current)),
+                                KeyValue('master io current', str(state.masterboard_data.master_io_current)),
+                                KeyValue('safety mode', str(state.masterboard_data.safety_mode)),
+                                KeyValue('in reduced mode', str(state.masterboard_data.in_reduced_mode))])
 
-            robot_msg = DiagnosticStatus()
-            if state.robot_mode_data.emergency_stopped or state.robot_mode_data.security_stopped:
-                robot_msg.level = 1
+        if state.robot_mode_data.emergency_stopped or state.robot_mode_data.security_stopped:
+            robot_level = DiagnosticStatus.WARN
+        else:
+            robot_level = DiagnosticStatus.OK
+        dia_robot_status = make_diagnostic_status(robot_level, 'ur_arm/Robot Status', '',
+                            [KeyValue('mode', str(state.robot_mode_data.robot_mode)),
+                                KeyValue('connected', str(state.robot_mode_data.robot_connected)),
+                                KeyValue('power on robot', str(state.robot_mode_data.power_on_robot)),
+                                KeyValue('emergency stop', str(state.robot_mode_data.emergency_stopped)),
+                                KeyValue('security stop', str(state.robot_mode_data.security_stopped)),
+                                KeyValue('program running', str(state.robot_mode_data.program_running)),
+                                KeyValue('program paused', str(state.robot_mode_data.program_paused))])
+
+        dia_joints = []
+        for i in range(0, len(state.joint_data)):
+            if state.joint_data[i].T_motor > 60.0 or state.joint_data[i].T_micro > 60.0:
+                joint_level = DiagnosticStatus.WARN
             else:
-                robot_msg.level = 0
-            robot_msg.name = 'ur_arm/Robot status'
-            robot_msg.hardware_id = 'ur_arm'
-            robot_msg.message = 'Beep'
-            robot_msg.values = [KeyValue('mode', str(state.robot_mode_data.robot_mode)),
-                KeyValue('connected', str(state.robot_mode_data.robot_connected)),
-                KeyValue('power on robot', str(state.robot_mode_data.power_on_robot)),
-                KeyValue('emergency stop', str(state.robot_mode_data.emergency_stopped)),
-                KeyValue('security stop', str(state.robot_mode_data.security_stopped)),
-                KeyValue('program running', str(state.robot_mode_data.program_running)),
-                KeyValue('program paused', str(state.robot_mode_data.program_paused))]
+                joint_level = DiagnosticStatus.OK
+            dia_joints.append(make_diagnostic_status(joint_level, 'ur_arm/joints/' + JOINT_NAMES[i], '',
+                                [KeyValue('joint mode', str(state.joint_data[i].joint_mode)),
+                                    KeyValue('motor temp', str(state.joint_data[i].T_motor)),
+                                    KeyValue('micro temp', str(state.joint_data[i].T_micro)),
+                                    KeyValue('q actual', str(state.joint_data[i].q_actual)),
+                                    KeyValue('q target', str(state.joint_data[i].q_target)),
+                                    KeyValue('qd actual', str(state.joint_data[i].qd_actual)),
+                                    KeyValue('current', str(state.joint_data[i].I_actual)),
+                                    KeyValue('voltage', str(state.joint_data[i].V_actual))]))
 
-            status_array_msg = DiagnosticArray()
-            status_array_msg.status = [masterboard_msg, robot_msg]
-            pub_diagnostics.publish(status_array_msg)
-
+        publish_diagnostics([dia_masterboard, dia_robot_status] + dia_joints)
 
         # Updates the state machine that determines whether we can program the robot.
         # rospy.loginfo("RobotMode %d" % state.robot_mode_data.robot_mode)
@@ -355,35 +385,46 @@ class URConnection(object):
             if state.robot_mode_data.robot_mode == RobotMode_V30.ROBOT_MODE_POWER_OFF and not self.robot_state == self.WAITING_FOR_POWER:
                 self.send_command(RobotCommands.POWER_ON)
                 self.robot_state = self.WAITING_FOR_POWER
+                rospy.logdebug("DebugRobotState %d" % self.robot_state)
+                publish_robot_state(self.robot_state)
                 rospy.loginfo("Waiting for power to turn on")
-            if state.robot_mode_data.robot_mode == RobotMode_V30.ROBOT_MODE_IDLE and not self.robot_state == self.WAITING_FOR_RUN:
+            elif state.robot_mode_data.robot_mode == RobotMode_V30.ROBOT_MODE_IDLE and not self.robot_state == self.WAITING_FOR_RUN:
                 self.send_command(RobotCommands.ROBOT_MODE_RUN)
                 self.robot_state = self.WAITING_FOR_RUN
+                rospy.logdebug("DebugRobotState %d" % self.robot_state)
+                publish_robot_state(self.robot_state)
                 rospy.loginfo("Waiting for robot to enter run mode")
         else:
             if self.robot_state == self.CONNECTED:
                 if can_execute:
                     self.__trigger_ready_to_program()
                     self.robot_state = self.READY_TO_PROGRAM
-                    rospy.logdebug("DebugRobotState %d" % self.robot_state )
+                    rospy.logdebug("DebugRobotState %d" % self.robot_state)
+                    publish_robot_state(self.robot_state)
             elif self.robot_state == self.READY_TO_PROGRAM:
                 if not can_execute:
                     self.robot_state = self.CONNECTED
-                    rospy.logdebug("DebugRobotState %d" % self.robot_state )
+                    rospy.logdebug("DebugRobotState %d" % self.robot_state)
+                    publish_robot_state(self.robot_state)
             elif self.robot_state == self.EXECUTING:
                 if not can_execute:
                     self.__trigger_halted()
                     self.robot_state = self.CONNECTED
-                    rospy.logdebug("DebugRobotState %d" % self.robot_state )
+                    rospy.logdebug("DebugRobotState %d" % self.robot_state)
+                    publish_robot_state(self.robot_state)
             elif self.robot_state == self.WAITING_FOR_POWER:
                 if state.robot_mode_data.robot_mode == RobotMode_V30.ROBOT_MODE_IDLE or can_execute:
                     self.robot_state = self.READY_TO_PROGRAM
-                    rospy.logdebug("DebugRobotState %d" % self.robot_state )
+                    rospy.logdebug("DebugRobotState %d" % self.robot_state)
+                    publish_robot_state(self.robot_state)
             elif self.robot_state == self.WAITING_FOR_RUN:
                 if can_execute:
                     rospy.logdebug("Recovered")
                     self.send_command(RobotCommands.RESUME_PROGRAM)
                     self.robot_state = self.EXECUTING
+                    rospy.logdebug("DebugRobotState %d" % self.robot_state)
+
+        publish_robot_state(self.robot_state)
 
         # Report on any unknown packet types that were received
         if len(state.unknown_ptypes) > 0:
