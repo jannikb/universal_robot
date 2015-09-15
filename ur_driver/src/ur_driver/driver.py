@@ -386,7 +386,8 @@ class URConnection(object):
                 rospy.logdebug("DebugRobotState %d" % self.robot_state)
         elif self.robot_state == self.EMERGENCY_STOPPED:
             rospy.loginfo("Emergency stop ended")
-            self.robot_state = self.CONNECTED
+            setConnectedRobot(None)
+            self.robot_state = self.DISCONNECTED
             rospy.logdebug("DebugRobotState %d" % self.robot_state)
 
         if state.robot_mode_data.security_stopped:
@@ -396,7 +397,8 @@ class URConnection(object):
                 rospy.logdebug("DebugRobotState %d" % self.robot_state)
         elif self.robot_state == self.SECURITY_STOPPED:
             rospy.loginfo("Security stop ended")
-            self.robot_state = self.CONNECTED
+            setConnectedRobot(None)
+            self.robot_state = self.DISCONNECTED
             rospy.logdebug("DebugRobotState %d" % self.robot_state)
 
         if (state.robot_mode_data.robot_mode == RobotMode_V30.ROBOT_MODE_POWER_OFF
@@ -454,7 +456,8 @@ class URConnection(object):
                 rospy.logdebug("DebugRobotState %d" % self.robot_state)
 
         if (state.robot_mode_data.program_paused and not
-            (self.robot_state == self.EMERGENCY_STOPPED or self.robot_state == self.SECURITY_STOPPED)):
+            (self.robot_state == self.EMERGENCY_STOPPED or self.robot_state == self.SECURITY_STOPPED
+                or self.robot_state == self.DISCONNECTED)):
             if self.robot_state == self.WAITING_FOR_RUN:
                 rospy.loginfo("Resuming from pause")
                 self.robot_state = self.WAITING_FOR_RESUME
@@ -1221,8 +1224,20 @@ def main():
     try:
         while not rospy.is_shutdown():
             # Checks for disconnect
-            if getConnectedRobot(wait=False):
+            r = getConnectedRobot(wait=True, timeout=0.5)
+            if r:
                 #print("RobotConnected!")
+                if not service_provider:
+                    service_provider = URServiceProvider(r)
+
+                if not velocity_subscriber:
+                    velocity_subscriber = URVelocitySubscriber(r)
+
+                if not action_server:
+                    action_server = URTrajectoryFollower(r, rospy.Duration(1.0))
+                    action_server.start()
+
+
                 time.sleep(0.2)
                 try:
                     prevent_programming = rospy.get_param("~prevent_programming")
@@ -1241,13 +1256,27 @@ def main():
                 if action_server:
                     action_server.set_robot(None)
 
-                #rospy.loginfo("Connecting to the robot")
-                #while not getConnectedRobot(wait=True, timeout=1.0):
-                    #print "Waiting to connect"
-                    #connection.connect()
-                    #connection.send_reset_program()
+                connection.disconnect()
+                connectionRT.disconnect()
 
-                    ##connectionRT.connect()
+                rospy.loginfo("Shutting down TCPServer")
+                server.shutdown()
+                server.server_close()
+
+                rospy.loginfo("Starting TCPServer")
+                server = TCPServer(("", reverse_port), CommanderTCPHandler)
+                thread_commander = threading.Thread(name="CommanderHandler", target=server.serve_forever)
+                thread_commander.daemon = True
+                thread_commander.start()
+
+
+                rospy.loginfo("Connecting to the robot")
+                while not getConnectedRobot(wait=True, timeout=1.0):
+                    print "Waiting to connect"
+                    connection.connect()
+                    connection.send_reset_program()
+
+                    connectionRT.connect()
 
                 rospy.loginfo("Programming the robot")
                 while True:
