@@ -727,11 +727,13 @@ class CommanderTCPHandler(SocketServer.BaseRequestHandler):
         self.__send_message(params)
 
     #Experimental set_payload implementation
-    def send_payload(self,payload):
+    def send_payload(self, payload):
+        rospy.loginfo("Setting payload to " + str(payload))
         self.__send_message([MSG_SET_PAYLOAD, payload * MULT_payload])
 
     #Experimental set_gravity implementation
-    def send_gravity(self,gravity):
+    def send_gravity(self, gravity):
+        rospy.loginfo("Setting gravity to " + str(gravity))
         self.__send_message([MSG_SET_GRAVITY] + [g * MULT_gravity for g in gravity])
 
     #Experimental set_digital_output implementation
@@ -880,7 +882,7 @@ class URServiceProvider(object):
         return True
 
     def setGravity(self, req):
-        if self.robot:
+        if self.robot and len(req.gravity) == 3:
             self.robot.send_gravity(req.gravity)
         else:
             return False
@@ -1150,7 +1152,7 @@ def reconfigure_callback(config, level):
     return config
 
 def main():
-    rospy.init_node('ur_driver', disable_signals=True, log_level=rospy.DEBUG)
+    rospy.init_node('ur_driver', disable_signals=True, log_level=rospy.INFO)
     if rospy.get_param("use_sim_time", False):
         rospy.logwarn("use_sim_time is set!!!")
 
@@ -1200,6 +1202,9 @@ def main():
     max_payload = rospy.get_param("~max_payload", MAX_PAYLOAD)
     rospy.loginfo("Bounds for Payload: [%s, %s]" % (min_payload, max_payload))
 
+    current_payload = rospy.get_param("~current_payload", None)
+    gravity = rospy.get_param("~gravity", None)
+    gravity_and_payload_set = False
 
     # Sets up the server for the robot to connect to
     server = TCPServer(("", reverse_port), CommanderTCPHandler)
@@ -1237,6 +1242,12 @@ def main():
                     action_server = URTrajectoryFollower(r, rospy.Duration(1.0))
                     action_server.start()
 
+                if not gravity_and_payload_set:
+                    if gravity is not None:
+                        r.send_gravity(gravity)
+                    if current_payload is not None:
+                        r.send_payload(current_payload)
+                    gravity_and_payload_set = True
 
                 time.sleep(0.2)
                 try:
@@ -1284,11 +1295,6 @@ def main():
                     while not connection.ready_to_program():
                         rospy.loginfo("Waiting to program")
                         time.sleep(1.0)
-
-                    rospy.loginfo("Sending program")
-
-                    #prevent_programming = rospy.get_param("prevent_programming", False)
-                    #connection.send_program()
 
                     r = getConnectedRobot(wait=True, timeout=5.0)
                     if r:

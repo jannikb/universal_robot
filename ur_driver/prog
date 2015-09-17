@@ -179,26 +179,25 @@ def driverProg():
         #send_waypoint_finished(waypoint_id)
         set_servo_setpoint(waypoint_id, q, t)
       elif mtype == MSG_SET_PAYLOAD:
-        params = socket_read_binary_integer(1)
-        if params[0] == 0:
+        params_payload = socket_read_binary_integer(1)
+        if params_payload[0] == 0:
           send_out("Received no parameters for setPayload message")
         end
 
-        payload = params[1] / MULT_payload
+        payload = params_payload[1] / MULT_payload
         #send_out(payload)
         send_out("Received new payload")
         set_payload(payload)
       elif mtype == MSG_SET_GRAVITY:
         send_out("Received set_gravity")
-        params = socket_read_binary_integer(3)
-        if params[0] == 0:
+        params_gravity = socket_read_binary_integer(3)
+        if params_gravity[0] == 0:
           send_out("Received no parameters for set_gravity message")
         end
 
-        gravity = [params[1] / MULT_gravity,
-                   params[2] / MULT_gravity,
-                   params[3] / MULT_gravity]
-        # send_out(gravity)
+        gravity = [params_gravity[1] / MULT_gravity,
+                   params_gravity[2] / MULT_gravity,
+                   params_gravity[3] / MULT_gravity]
         set_gravity(gravity)
       elif mtype == MSG_STOPJ:
         send_out("Received stopj")

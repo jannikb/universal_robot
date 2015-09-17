@@ -12,8 +12,11 @@
   <arg name="robot_ip"/>
   <arg name="reverse_port" default="50001"/>
   <arg name="limited" default="false"/>
-  <arg name="min_payload"  default="0.0"/>
-  <arg name="max_payload"  default="3.0"/>
+  <arg name="min_payload" default="0.0"/>
+  <arg name="max_payload" default="3.0"/>
+  <arg name="current_payload" default="0.0"/>
+
+  <!-- <rosparam param="ur_driver/gravity"> [0.0, 0.0, 9.80665] </rosparam> -->
 
   <!-- robot model -->
   <include file="$(find ur_description)/launch/ur3_upload.launch">
@@ -29,6 +32,7 @@
     <arg name="reverse_port" value="$(arg reverse_port)"/>
     <arg name="min_payload"  value="$(arg min_payload)"/>
     <arg name="max_payload"  value="$(arg max_payload)"/>
+    <arg name="current_payload" value="$(arg current_payload)"/>
   </include>
 
 </launch>
